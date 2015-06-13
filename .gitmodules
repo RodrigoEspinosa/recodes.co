@@ -1,0 +1,4 @@
+[submodule "content/themes/vapor"]
+	path = content/themes/vapor
+	url = git@github.com:RodrigoEspinosa/vapor.git
+	branch = recodes.co
