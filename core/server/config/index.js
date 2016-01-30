@@ -1,17 +1,16 @@
+// # Config
 // General entry point for all configuration data
-//
-// This file itself is a wrapper for the root level config.js file.
-// All other files that need to reference config.js should use this file.
-
 var path          = require('path'),
     Promise       = require('bluebird'),
+    chalk         = require('chalk'),
     crypto        = require('crypto'),
     fs            = require('fs'),
     url           = require('url'),
     _             = require('lodash'),
     knex          = require('knex'),
     validator     = require('validator'),
-    requireTree   = require('../require-tree').readAll,
+    readDirectory = require('../utils/read-directory'),
+    readThemes    = require('../utils/read-themes'),
     errors        = require('../errors'),
     configUrl     = require('./url'),
     packageInfo   = require('../../../package.json'),
@@ -30,8 +29,11 @@ function ConfigManager(config) {
     this._config = {};
 
     // Allow other modules to be externally accessible.
+    this.urlJoin = configUrl.urlJoin;
     this.urlFor = configUrl.urlFor;
     this.urlPathForPost = configUrl.urlPathForPost;
+    this.apiUrl = configUrl.apiUrl;
+    this.getBaseUrl = configUrl.getBaseUrl;
 
     // If we're given an initial config object then we can set it.
     if (config && _.isObject(config)) {
@@ -76,7 +78,7 @@ ConfigManager.prototype.init = function (rawConfig) {
     // just the object appropriate for this NODE_ENV
     self.set(rawConfig);
 
-    return Promise.all([requireTree(self._config.paths.themePath), requireTree(self._config.paths.appPath)]).then(function (paths) {
+    return Promise.all([readThemes(self._config.paths.themePath), readDirectory(self._config.paths.appPath)]).then(function (paths) {
         self._config.paths.availableThemes = paths[0];
         self._config.paths.availableApps = paths[1];
         return self._config;
@@ -205,13 +207,18 @@ ConfigManager.prototype.set = function (config) {
         routeKeywords: {
             tag: 'tag',
             author: 'author',
-            page: 'page'
+            page: 'page',
+            preview: 'p',
+            private: 'private'
         },
         slugs: {
             // Used by generateSlug to generate slugs for posts, tags, users, ..
             // reserved slugs are reserved but can be extended/removed by apps
             // protected slugs cannot be changed or removed
-            reserved: ['admin', 'app', 'apps', 'archive', 'archives', 'categories', 'category', 'dashboard', 'feed', 'ghost-admin', 'login', 'logout', 'page', 'pages', 'post', 'posts', 'public', 'register', 'setup', 'signin', 'signout', 'signup', 'tag', 'tags', 'user', 'users', 'wp-admin', 'wp-login'],
+            reserved: ['admin', 'app', 'apps', 'archive', 'archives', 'categories',
+            'category', 'dashboard', 'feed', 'ghost-admin', 'login', 'logout',
+            'page', 'pages', 'post', 'posts', 'public', 'register', 'setup',
+            'signin', 'signout', 'signup', 'user', 'users', 'wp-admin', 'wp-login'],
             protected: ['ghost', 'rss']
         },
         uploads: {
@@ -339,14 +346,6 @@ ConfigManager.prototype.validate = function () {
         return Promise.reject(e);
     }
 
-    // Check if we don't even have a config
-    if (!config) {
-        errors.logError(new Error('Cannot find the configuration for the current NODE_ENV'), 'NODE_ENV=' + envVal,
-            'Ensure your config.js has a section for the current NODE_ENV value and is formatted properly.');
-
-        return Promise.reject(new Error('Unable to load config for NODE_ENV=' + envVal));
-    }
-
     // Check that our url is valid
     if (!validator.isURL(config.url, {protocols: ['http', 'https'], require_protocol: true})) {
         errors.logError(new Error('Your site url in config.js is invalid.'), config.url, 'Please make sure this is a valid url before restarting');
@@ -405,7 +404,7 @@ ConfigManager.prototype.isPrivacyDisabled = function (privacyFlag) {
 ConfigManager.prototype.checkDeprecated = function () {
     var self = this;
     _.each(this.deprecatedItems, function (property) {
-        self.displayDeprecated(self, property.split('.'), []);
+        self.displayDeprecated(self._config, property.split('.'), []);
     });
 };
 
@@ -422,7 +421,7 @@ ConfigManager.prototype.displayDeprecated = function (item, properties, address)
         if (properties.length) {
             return self.displayDeprecated(item[property], properties, address);
         }
-        errorText = 'The configuration property [' + address.join('.').bold + '] has been deprecated.';
+        errorText = 'The configuration property [' + chalk.bold(address.join('.')) + '] has been deprecated.';
         explanationText =  'This will be removed in a future version, please update your config.js file.';
         helpText = 'Please check http://support.ghost.org/config for the most up-to-date example.';
         errors.logWarn(errorText, explanationText, helpText);
